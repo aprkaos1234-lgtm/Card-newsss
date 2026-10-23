@@ -776,3 +776,64 @@ describe("register: the sticky subcommand", () => {
     assert.match((await run(hooks, $, "")).text, /switch needs 50%/);
   });
 });
+
+describe("register: the model in the status line", () => {
+  test("follows the route, then the model the API says answered", async () => {
+    const { hooks, $ } = load();
+    const lines: (string | undefined)[] = [];
+    const engine = {
+      ...$,
+      ui: { status: (t: string | undefined) => lines.push(t) },
+      session: { ...$.session, model: async () => "claude-opus-5" },
+    };
+    await hooks.get("turn.start")!(
+      engine,
+      { text: "plan the architecture", turnId: "t1" },
+      async (e: unknown) => e,
+    );
+    assert.equal(lines.at(-1), "모델 opus · claude-opus-5 · high");
+
+    await collect(
+      hooks.get("turn.step")!(
+        engine,
+        { turnId: "t1", model: "claude-opus-5" },
+        () => answeredBy("claude-opus-5-20260901"),
+      ),
+    );
+    assert.equal(lines.at(-1), "모델 opus · claude-opus-5-20260901 ✓ · high");
+  });
+
+  test("an unrouted turn shows the session model", async () => {
+    const { hooks, $, fail } = load();
+    const lines: (string | undefined)[] = [];
+    const engine = {
+      ...$,
+      ui: { status: (t: string | undefined) => lines.push(t) },
+      session: { ...$.session, model: async () => "claude-opus-5-5" },
+    };
+    fail();
+    await hooks.get("turn.start")!(
+      engine,
+      { text: "implement it", turnId: "t2" },
+      async (e: unknown) => e,
+    );
+    assert.equal(lines.at(-1), "모델 claude-opus-5-5 · jev 미적용");
+  });
+
+  test("an engine without a status line still routes", async () => {
+    const { hooks, $ } = load();
+    await hooks.get("turn.start")!(
+      $,
+      { text: "implement it", turnId: "t3" },
+      async (e: unknown) => e,
+    );
+    let sent: { model?: string } = {};
+    await collect(
+      hooks.get("turn.step")!($, { turnId: "t3" }, (e: { model?: string }) => {
+        sent = e;
+        return answeredBy("claude-opus-5");
+      }),
+    );
+    assert.equal(sent.model, "claude-opus-5");
+  });
+});

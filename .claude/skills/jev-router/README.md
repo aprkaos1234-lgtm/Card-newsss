@@ -240,6 +240,12 @@ The app's own model indicator will never change. It shows the *session*
 model, which this mod does not touch — the rewrite happens per request, in
 `turn.step`.
 
+**The status line under the prompt**, via `$.ui.status`, is what follows the
+switch instead: `모델 opus · claude-opus-5 · high` when the turn starts, then
+`모델 opus · claude-opus-5-20260901 ✓ · high` once the API says which model
+answered. An unrouted turn shows `모델 <session model> · jev 미적용`, and
+`/jev off` leaves `jev off`. Subagents do not touch it.
+
 ## Commands and switches
 
 - `/jev` prints the status above. `/jev on` and `/jev off` set routing

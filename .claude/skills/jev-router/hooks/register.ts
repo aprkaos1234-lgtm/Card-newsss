@@ -2,7 +2,7 @@ import type { On } from "claude-code";
 
 import { explicitDecision, hasSecret, minimizedState } from "./guard.ts";
 import { askJev, timeoutOf } from "./jev.ts";
-import { labelOf, withLabel } from "./label.ts";
+import { labelOf, modelStatusOf, withLabel } from "./label.ts";
 import {
   excludedTiers,
   offeredTiers,
@@ -56,6 +56,27 @@ async function agentTagOf(
   const rows = await $.agent.list().catch(() => []);
   const row = rows.find((r) => r.id === agentId);
   return row ? { type: row.type, label: row.description } : { label: agentId };
+}
+
+/**
+ * Shows the model a turn runs on in the status line. The app's own model
+ * indicator shows the session model and never moves, since the rewrite is per
+ * request; this line is what keeps the screen in step. Cosmetic, so it never
+ * throws.
+ */
+async function showModel(
+  $: {
+    ui: { status: (text: string | undefined) => void };
+    session: { model: () => Promise<string> };
+  },
+  decision: Decision | null,
+  answered?: string,
+): Promise<void> {
+  try {
+    $.ui.status(modelStatusOf(decision, await $.session.model(), answered));
+  } catch {
+    // nothing to show
+  }
 }
 
 /**
@@ -169,6 +190,11 @@ export function register(on: On) {
     if (arg === "on" || arg === "off") {
       enabled = arg === "on";
       if (!enabled) latest = null;
+      try {
+        $.ui.status(enabled ? undefined : "jev off");
+      } catch {
+        // the status line is cosmetic
+      }
       return { text: toggleReply(enabled) };
     }
 
@@ -237,6 +263,7 @@ export function register(on: On) {
       const local = localAttemptOf(e.text);
       if (local !== null) {
         settle(e.turnId, local);
+        await showModel($, decisions.get(e.turnId) ?? null);
         return next(e);
       }
 
@@ -267,6 +294,7 @@ export function register(on: On) {
       const detail = error instanceof Error ? error.message : String(error);
       record({ prompt: "(router error)", ms: 0, skipped: `router error: ${detail}` });
     }
+    await showModel($, decisions.get(e.turnId) ?? null);
     return next(e);
   });
 
@@ -338,6 +366,11 @@ export function register(on: On) {
           if (attempt && chunk.usage) addUsage(attempt, chunk.usage);
         } catch {
           // usage is only for the report
+        }
+        // The main loop only: a subagent's model is not the one the person
+        // is reading.
+        if (e.agentId === undefined && chunk.usage?.model) {
+          await showModel($, decision ?? null, chunk.usage.model);
         }
 
         // The index must be one past the last text block, and this is
